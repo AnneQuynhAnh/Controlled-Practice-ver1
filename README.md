@@ -24,3 +24,14 @@ Data (SQLite database and audio) is stored in `./data` (override with `CP_DATA_D
 6. Back in Test Manager → **Publish**.
 
 Settings (sentences per test, daily Guided Review limit, delayed-review cap, source target) are under **Assignments → Settings**.
+
+## Deploying (Render)
+
+1. New Web Service from this repo. Build `npm ci`, start `npm start`, Node 20.
+2. Add a **persistent disk** mounted at `/var/data` and set `CP_DATA_DIR=/var/data`.
+   Without a disk, the database and audio are wiped on every restart, deploy, or free-tier sleep.
+3. Set `CP_TEACHER_USERNAME`, `CP_TEACHER_PASSWORD` (8+ characters) and optionally `CP_TEACHER_NAME`.
+   The first teacher account is created from these on start-up if it does not exist yet.
+4. Sign in as that teacher, add students under **Students → Add a student**, then upload audio and build tests.
+
+`render.yaml` describes this setup as a Render Blueprint. ffmpeg/ffprobe are bundled via npm (`ffmpeg-static`, `ffprobe-static`).

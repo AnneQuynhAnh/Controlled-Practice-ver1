@@ -27,6 +27,25 @@ export function createUser(db, { username, displayName, role, password, now = Da
   return info.lastInsertRowid;
 }
 
+export function setPassword(db, userId, password) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+  db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId);
+}
+
+/**
+ * First teacher account on a fresh server (e.g. a new deployment), from CP_TEACHER_USERNAME and
+ * CP_TEACHER_PASSWORD. Nothing happens if the variables are missing or the account already exists.
+ */
+export function ensureBootstrapTeacher(db, env = process.env) {
+  const username = env.CP_TEACHER_USERNAME?.trim();
+  const password = env.CP_TEACHER_PASSWORD;
+  if (!username || !password) return null;
+  if (password.length < 8) throw new Error('CP_TEACHER_PASSWORD must be at least 8 characters.');
+  if (db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(username)) return null;
+  createUser(db, { username, displayName: env.CP_TEACHER_NAME?.trim() || 'Teacher', role: 'teacher', password });
+  return username;
+}
+
 export function login(db, clock, username, password) {
   const user = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(String(username).trim());
   if (!user || !verifyPassword(password, user.password_hash)) {

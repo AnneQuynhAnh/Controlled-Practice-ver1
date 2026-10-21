@@ -25,6 +25,8 @@ export function teacherRoutes(ctx) {
   r.get('/dashboard', handle(() => monitoring.dashboard(ctx)));
   r.get('/analytics', handle(() => ({ students: monitoring.analytics(ctx) })));
   r.get('/students', handle(() => ({ students: content.listStudents(db) })));
+  r.post('/students', handle((req) => monitoring.addStudent(ctx, { teacherId: t(req), ...req.body })));
+  r.post('/users/:id/password', handle((req) => monitoring.resetPassword(ctx, { teacherId: t(req), userId: id(req.params.id), password: req.body?.password })));
   r.get('/students/:id', handle((req) => monitoring.studentDetail(ctx, id(req.params.id))));
   r.post('/students/:id/paste-exception', handle((req) => monitoring.setPasteException(ctx, {
     teacherId: t(req), studentId: id(req.params.id), allowed: Boolean(req.body?.allowed), reason: String(req.body?.reason ?? ''),

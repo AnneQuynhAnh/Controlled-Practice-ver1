@@ -14,15 +14,58 @@ const EVENT_LABEL = {
 };
 const eventKind = (t) => (t.startsWith('audio') ? 'k-audio' : ['tab_hidden', 'paste_attempt', 'copy_attempt', 'concurrent_session_detected', 'audio_play_interrupted'].includes(t) ? 'k-warn' : t.includes('submitted') || t.includes('completed') ? 'k-submit' : '');
 
-export async function students(root) {
+export async function students(root, _params, { user }) {
   const { students: list } = await get('/api/teacher/students');
   setHtml(root, html`
     <div class="page-head"><div><span class="eyebrow">Teacher</span><h1>Students</h1><p class="lede">Submissions, listening records and session events.</p></div></div>
     ${list.length ? html`<div class="grid">${list.map((s) => html`
       <a class="card" href="#/t/students/${s.id}" style="text-decoration:none;color:inherit">
-        <h3>${s.display_name}</h3><p class="small muted">@${s.username}</p>
+        <h3>${s.display_name}</h3><p class="small muted">Username: <strong>${s.username}</strong></p>
         ${s.cp_paste_exception ? html`<span class="badge pink">Paste allowed (accessibility)</span>` : ''}
-      </a>`)}</div>` : emptyState(IMG.unsure, 'No students yet')}`);
+      </a>`)}</div>` : emptyState(IMG.unsure, 'No students yet', 'Add your first student below.')}
+    <div class="grid-2 section">
+      <form class="card stack" data-add>
+        <h2>Add a student</h2>
+        <div class="field"><label for="dn">Name</label><input class="input" id="dn" name="displayName" placeholder="Bao Han" required></div>
+        <div class="field"><label for="un">Username</label><input class="input" id="un" name="username" placeholder="baohan" autocapitalize="off" spellcheck="false" required>
+          <span class="hint">Lowercase letters and numbers, no spaces or accents.</span></div>
+        <div class="field"><label for="pw">Password</label><input class="input" id="pw" name="password" minlength="6" required>
+          <span class="hint">At least 6 characters. Write it down and give it to the student.</span></div>
+        <div><button class="btn btn-primary" type="submit">Add student</button></div>
+      </form>
+      <form class="card stack" data-mine>
+        <h2>Your teacher password</h2>
+        <p class="small muted">Signed in as <strong>${user.name}</strong>. Changing it signs you out everywhere.</p>
+        <div class="field"><label for="np">New password</label><input class="input" id="np" name="password" type="password" minlength="8" required autocomplete="new-password"></div>
+        <div><button class="btn btn-blue" type="submit">Change my password</button></div>
+      </form>
+    </div>`);
+  const name = root.querySelector('#dn');
+  const uname = root.querySelector('#un');
+  // Suggest a username from the name: "Ngọc Trần" -> "ngoctran".
+  name.addEventListener('input', () => {
+    if (uname.dataset.touched) return;
+    uname.value = name.value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]/g, '');
+  });
+  uname.addEventListener('input', () => { uname.dataset.touched = '1'; });
+  root.querySelector('[data-add]').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try {
+      const r = await post('/api/teacher/students', f);
+      toast(`Added ${f.displayName} — username ${r.username}`);
+      students(root, _params, { user });
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  root.querySelector('[data-mine]').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (e.target.password.value.length < 8) return toast('Use at least 8 characters for the teacher password.', 'error');
+    try {
+      await post(`/api/teacher/users/${user.id}/password`, { password: e.target.password.value });
+      toast('Password changed. Please sign in again.');
+      window.dispatchEvent(new Event('cp:unauthenticated'));
+    } catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 export async function studentDetail(root, [idStr]) {
@@ -32,7 +75,12 @@ export async function studentDetail(root, [idStr]) {
   setHtml(root, html`
     <p><a href="#/t/students">← Students</a></p>
     <div class="page-head"><div><span class="eyebrow">Student</span><h1>${d.student.display_name}</h1></div>
-      <label class="check"><input type="checkbox" data-paste ${d.student.cp_paste_exception ? 'checked' : ''}> Allow paste (accessibility exception)</label></div>
+      <div class="stack-sm">
+        <label class="check"><input type="checkbox" data-paste ${d.student.cp_paste_exception ? 'checked' : ''}> Allow paste (accessibility exception)</label>
+        <form class="row" data-reset><span class="small">Username: <strong>${d.student.username}</strong></span>
+          <input class="input" name="password" placeholder="New password" minlength="6" style="max-width:180px" aria-label="New password">
+          <button class="btn btn-ghost btn-sm">Reset password</button></form>
+      </div></div>
     <div class="grid-2">
       <div class="category independent"><h3>🎧 Independent</h3><p class="note">Original locked answers only.</p>
         <div class="stats"><div class="stat"><div class="v">${m.testsCompleted}</div><div class="l">Tests</div></div>
@@ -59,6 +107,14 @@ export async function studentDetail(root, [idStr]) {
       <div class="table-wrap"><table><thead><tr><th>Test</th><th>Status</th></tr></thead>
       <tbody>${d.tests.map((t) => html`<tr><td>${t.title}</td><td>${statusBadge(t.status)}</td></tr>`)}</tbody></table></div>
     </section>`);
+  root.querySelector('[data-reset]').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await post(`/api/teacher/users/${id}/password`, { password: e.target.password.value });
+      toast(`New password for ${d.student.username}: ${e.target.password.value}`);
+      e.target.reset();
+    } catch (err) { toast(err.message, 'error'); }
+  });
   root.querySelector('[data-paste]').addEventListener('change', async (e) => {
     try { await post(`/api/teacher/students/${id}/paste-exception`, { allowed: e.target.checked, reason: 'accessibility' }); toast('Updated'); } catch (err) { toast(err.message, 'error'); }
   });

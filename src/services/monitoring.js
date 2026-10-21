@@ -1,6 +1,7 @@
 import { tx } from '../db.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { dayStart, localDate } from '../lib/time.js';
+import { createUser, setPassword } from '../lib/auth.js';
 import { logTeacherAction } from './activity.js';
 import { DELAYED_REVIEW_INTERVAL_MS, delayedDeadline, guidedReviewPlan } from './reviews.js';
 import { listStudentTests } from './student.js';
@@ -295,6 +296,30 @@ export function updateReviewItem(ctx, { teacherId, reviewItemId, action, note, p
     logTeacherAction(db, now, { teacherId, action: `review_${action}`, targetType: 'review_item', targetId: item.id, studentId: item.student_id, reason, metadata: { note, postponeUntil, dueAt } });
     return db.prepare('SELECT * FROM review_items WHERE id = ?').get(item.id);
   });
+}
+
+const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+
+export function addStudent(ctx, { teacherId, username, displayName, password }) {
+  const { db, clock } = ctx;
+  const u = String(username ?? '').trim().toLowerCase();
+  if (!USERNAME_RE.test(u)) throw badRequest('INVALID_USERNAME', 'Username: 3–32 letters, numbers, dot, dash or underscore, no spaces or accents.');
+  if (String(password ?? '').length < 6) throw badRequest('WEAK_PASSWORD', 'Password must be at least 6 characters.');
+  if (db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(u)) throw conflict('USERNAME_TAKEN', 'That username is already used.');
+  const id = Number(createUser(db, { username: u, displayName: String(displayName ?? '').trim() || u, role: 'student', password, now: clock.now() }));
+  logTeacherAction(db, clock.now(), { teacherId, action: 'add_student', targetType: 'user', targetId: id, studentId: id });
+  return { id, username: u };
+}
+
+export function resetPassword(ctx, { teacherId, userId, password }) {
+  const { db, clock } = ctx;
+  if (String(password ?? '').length < 6) throw badRequest('WEAK_PASSWORD', 'Password must be at least 6 characters.');
+  const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(userId);
+  if (!user) throw notFound('User not found.');
+  if (user.role === 'teacher' && user.id !== teacherId) throw badRequest('NOT_ALLOWED', 'You can only change your own teacher password.');
+  setPassword(db, user.id, password);
+  logTeacherAction(db, clock.now(), { teacherId, action: 'reset_password', targetType: 'user', targetId: user.id, studentId: user.role === 'student' ? user.id : null });
+  return { ok: true };
 }
 
 export function setPasteException(ctx, { teacherId, studentId, allowed, reason = '' }) {

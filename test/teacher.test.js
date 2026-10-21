@@ -183,3 +183,28 @@ test('items per test: default ten, configurable, enforced at publish; source div
     assert.equal((await w.teacher.put(`/api/teacher/tests/${testId + 1}/items`, { segmentIds: [...ids, ids[0] + 100] })).status, 400);
   } finally { await w.close(); }
 });
+
+test('first teacher from environment; teacher adds students and resets passwords', async () => {
+  const { openDatabase } = await import('../src/db.js');
+  const { ensureBootstrapTeacher } = await import('../src/lib/auth.js');
+  const fresh = openDatabase(':memory:');
+  assert.equal(ensureBootstrapTeacher(fresh, {}), null, 'nothing without variables');
+  assert.throws(() => ensureBootstrapTeacher(fresh, { CP_TEACHER_USERNAME: 'anne', CP_TEACHER_PASSWORD: 'short' }));
+  assert.equal(ensureBootstrapTeacher(fresh, { CP_TEACHER_USERNAME: 'anne', CP_TEACHER_PASSWORD: 'long-enough-pw' }), 'anne');
+  assert.equal(ensureBootstrapTeacher(fresh, { CP_TEACHER_USERNAME: 'anne', CP_TEACHER_PASSWORD: 'long-enough-pw' }), null, 'only once');
+
+  const w = await boot();
+  try {
+    const add = await w.teacher.post('/api/teacher/students', { displayName: 'Bao Han', username: 'BaoHan', password: 'baohan' });
+    assert.equal(add.status, 200);
+    assert.equal(add.data.username, 'baohan');
+    assert.equal((await w.teacher.post('/api/teacher/students', { displayName: 'X', username: 'bảo hân', password: 'abcdef' })).status, 400);
+    assert.equal((await w.teacher.post('/api/teacher/students', { displayName: 'X', username: 'baohan', password: 'abcdef' })).status, 409);
+    assert.equal((await w.s1.post('/api/teacher/students', { username: 'hack', password: 'abcdef' })).status, 403);
+    const c = new Client(w.base);
+    assert.equal((await c.post('/api/auth/login', { username: 'baohan', password: 'baohan' })).status, 200);
+    assert.equal((await w.teacher.post(`/api/teacher/users/${add.data.id}/password`, { password: 'newpass1' })).status, 200);
+    assert.equal((await c.get('/api/cp/today')).status, 401, 'old sessions are signed out');
+    assert.equal((await new Client(w.base).post('/api/auth/login', { username: 'baohan', password: 'newpass1' })).status, 200);
+  } finally { await w.close(); }
+});

@@ -1,0 +1,24 @@
+# Render Blueprint. The app keeps its SQLite database and uploaded audio in CP_DATA_DIR,
+# so it needs a persistent disk; without one, all data is lost on every restart or deploy.
+services:
+  - type: web
+    name: controlled-practice-ver1
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.15.1
+      - key: CP_DATA_DIR
+        value: /var/data
+      - key: CP_TEACHER_USERNAME
+        sync: false
+      - key: CP_TEACHER_PASSWORD
+        sync: false
+      - key: CP_TEACHER_NAME
+        sync: false
+    disk:
+      name: cp-data
+      mountPath: /var/data
+      sizeGB: 1
